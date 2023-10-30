@@ -4,7 +4,7 @@
 import json
 import argparse
 import uvicorn
-from app.main import run_from_file, create_app, create_ws_server
+from app.main import run_from_file, create_http_app, create_ws_app
 
 parser = argparse.ArgumentParser(description="Run the application.")
 parser.add_argument("--http", action="store_true", help="Run the HTTP server.")
@@ -57,12 +57,17 @@ elif args.script:
             f.write(json.dumps(results, indent=4))
 elif args.http:
     uvicorn.run(
-        create_app(),
+        create_http_app(),
         host=args.host,
         port=args.port,
-        debug=args.debug,
+        reload=args.debug,
     )
 elif args.ws:
-    create_ws_server(host=args.host, port=args.port)
+    uvicorn.run(
+        create_ws_app(),
+        host=args.host,
+        port=args.port,
+        reload=args.debug,
+    )
 else:
     print("Please specify either --http or --ws or --script.")

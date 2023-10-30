@@ -3,4 +3,4 @@ requests
 jsonpath-ng
 fastapi
 uvicorn[standard]
-websocket-server
+websockets
