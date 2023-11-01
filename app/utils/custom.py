@@ -45,7 +45,7 @@ def extract_json(self, action_id: str, json_obj: dict, expression: str):
         raise JSONExtractionError(f"Unable to extract JSON: {e}")
 
 
-def for_each(
+async def for_each(
     self,
     action_id: str,
     array: list,
@@ -61,8 +61,9 @@ def for_each(
             flow.variables = {k: v for k, v in self._variables.items() if "__" not in k}
             flow.variables[action_id] = item
             flow.start_id = next_function
-            process = Process(flow, debug=self._debug)
-            local_variables = process.run()
+            process = Process(flow, debug=self._debug, update=self._update)
+            await process._run_function(next_function)
+            local_variables = process._variables
             for k in global_variable_keys:
                 self._variables[k] = local_variables.pop(k)
             self._variables[f"{action_id}__{index}"] = local_variables
@@ -71,7 +72,7 @@ def for_each(
         raise ForEachError(e)
 
 
-def sequence(self, action_id: str, array: list[str]):
+async def sequence(self, action_id: str, array: list[str]):
     try:
         if not isinstance(array, list):
             raise ValueError("array must be a list")
@@ -80,8 +81,9 @@ def sequence(self, action_id: str, array: list[str]):
             flow = self._flow.model_copy()
             flow.variables = {k: v for k, v in self._variables.items() if "__" not in k}
             flow.start_id = item
-            process = Process(flow, debug=self._debug)
-            self._variables.update(process.run())
+            process = Process(flow, debug=self._debug, update=self._update)
+            await process._run_function(item)
+            self._variables.update(process._variables)
         return "Completed"
     except Exception as e:
         raise SequenceError(e)
