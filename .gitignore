@@ -336,3 +336,5 @@ pyrightconfig.json
 .ionide
 
 # End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,intellij+all,pycharm+all
+.DS_Store
+test.json
