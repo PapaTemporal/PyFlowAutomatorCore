@@ -5,6 +5,7 @@ import json
 import asyncio
 
 from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.utils import Process
 from app.models import Flow
@@ -18,6 +19,15 @@ def run_from_file(path: str, debug: bool = False):
 
 def create_app(debug: bool = False):
     app = FastAPI()
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:5173",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     def print_debug(message: str):
         if debug:
