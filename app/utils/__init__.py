@@ -1,7 +1,7 @@
 # This file is licensed under the CC BY-NC-SA 4.0 license.
 # See https://creativecommons.org/licenses/by-nc-sa/4.0/ for details.
 
-import os
+import time
 import json
 import inspect
 import asyncio
@@ -46,7 +46,6 @@ class Process:
         self._debug = debug
         self._variables = self._flow.variables.copy()
         self._allow_list = allow_list.extend(custom_functions) if allow_list else None
-        self._cancel = False
 
     def print(self, message: str):
         if self._debug:
@@ -87,7 +86,9 @@ class Process:
             self._set_exceptions(function_id, node)
             args = await self._get_args(function_id, node)
             kwargs = await self._get_kwargs(function_id, node)
-            response = await self._call_function(function_id, node.func, args, kwargs)
+            response, duration = await self._call_function(
+                function_id, node.func, args, kwargs
+            )
 
             self.print(f"Response: {response}")
 
@@ -101,12 +102,16 @@ class Process:
                 message = {
                     "function_id": function_id,
                     "function_name": node.func,
+                    "duration": f"{duration * 1000000:.2f}μs"
+                    if duration < 0.001
+                    else (
+                        f"{duration * 1000:.2f}ms"
+                        if duration < 1
+                        else f"{duration:.2f}s"
+                    ),
                     "response": response,
                 }
                 await self._update(message)
-
-            if self._cancel:
-                return
 
             if next_action := node.next:
                 await self._run_function(next_action)
@@ -181,9 +186,13 @@ class Process:
             )
 
             if inspect.iscoroutinefunction(func):
-                return await func(*args, **kwargs)
+                start = time.time()
+                r = await func(*args, **kwargs)
+                return r, time.time() - start
             else:
-                return func(*args, **kwargs)
+                start = time.time()
+                r = func(*args, **kwargs)
+                return r, time.time() - start
         except Exception as e:
             raise FunctionCallError(e)
 

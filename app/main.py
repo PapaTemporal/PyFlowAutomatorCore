@@ -43,51 +43,65 @@ def create_app(debug: bool = False):
     @app.websocket("/ws/run")
     async def websocket_endpoint(websocket: WebSocket):
         await websocket.accept()
-        data = await websocket.receive_json()
-        print_debug("Received data")
-        await websocket.send_text("Received data.")
-
-        async def send_update(update):
-            print_debug(f"Sending update: {update}")
-            await websocket.send_json(update)
-
-        try:
-            print_debug("Processing")
-            await websocket.send_text("Processing.")
-            flow = Flow(**data)
-        except Exception:
-            await websocket.send_text("Invalid flow data.")
-            print_debug("Closing connection")
-            await websocket.send_text("Closing connection")
-            await websocket.close()
-            return
-
-        process = Process(flow, update=send_update, debug=debug)
-        process_task = asyncio.create_task(process.run())
+        process = None
+        process_task = None
         receive_task = asyncio.create_task(websocket.receive_json())
 
+        async def send_update(update):
+            if isinstance(update, dict):
+                await websocket.send_json(update)
+            else:
+                await websocket.send_text(update)
+
         while True:
+            if process_task and process_task.done():
+                print_debug("Process completed")
+                await send_update("Process completed.")
+                process_task = None
+                process = None
+
             done, pending = await asyncio.wait(
-                [process_task, receive_task],
+                [receive_task, process_task] if process_task else [receive_task],
                 return_when=asyncio.FIRST_COMPLETED,
             )
 
             if process_task in done:
-                print_debug("Finished processing")
-                await websocket.send_text("Finished processing.")
-                break
+                print_debug("Process completed")
+                await send_update("Process completed.")
+                process_task = None
+                process = None
+                continue
 
             if receive_task in done:
                 data = done.pop().result()
-                if "stop" in data:
-                    process._cancel = True
-                    process_task.cancel()
-                    print_debug("Stopping process per user request")
-                    await websocket.send_text("Stopping process per user request.")
-                    if process_task.cancelled() or process_task.done():
-                        break
 
-            if not receive_task.cancelled() and not receive_task.done():
+                if "stop" in data:
+                    if process_task:
+                        process_task.cancel()
+                        print_debug("Stopping process per user request")
+                        await send_update("Stopping process per user request.")
+                    else:
+                        print_debug("No process running.")
+                        await send_update("No process running.")
+                else:
+                    if process_task is None:
+                        try:
+                            flow = Flow(**data)
+                            process = Process(flow, update=send_update, debug=debug)
+                            process_task = asyncio.create_task(process.run())
+                            print_debug("Starting process")
+                            await send_update("Starting process.")
+                        except Exception as e:
+                            print_debug(f"Invalid flow data: {str(e)}")
+                            await send_update(f"Invalid flow data: {str(e)}")
+                    else:
+                        print_debug(
+                            "Process already running. Ignoring new process request."
+                        )
+                        await send_update(
+                            "Process already running. Ignoring new process request."
+                        )
+
                 receive_task = asyncio.create_task(websocket.receive_json())
 
     return app
