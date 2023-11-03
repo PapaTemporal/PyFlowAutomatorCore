@@ -43,8 +43,8 @@ class Node(BaseModel, extra="allow"):
 
 
 class Flow(BaseModel):
-    id: str
-    name: str
+    id: str | None = None
+    name: str | None = None
     variables: dict[str, Any]
     edges: list[Edge]
     nodes: list[Node]
