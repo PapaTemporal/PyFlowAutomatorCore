@@ -2,3 +2,5 @@ at some point, add parameters to Flow so that users can specify http observers, 
     //for now, just use the default observer
 add save capability as in-memory, to a file, to a database, etc. or as bring your own save location (plugin design)
 add trigger saved Flow to run a Flow from a saved location
+add more http methods
+add some string manipulation functions
