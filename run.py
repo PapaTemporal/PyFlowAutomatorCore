@@ -1,10 +1,14 @@
 # This file is licensed under the CC BY-NC-SA 4.0 license.
 # See https://creativecommons.org/licenses/by-nc-sa/4.0/ for details.
 
+import os
 import json
 import argparse
 import uvicorn
-from app.main import run_from_file, create_app
+from dotenv import load_dotenv
+
+load_dotenv()
+from app import run_from_file
 
 parser = argparse.ArgumentParser(description="Run the application.")
 parser.add_argument("--http", action="store_true", help="Run the HTTP server.")
@@ -54,7 +58,7 @@ if args.script:
             f.write(json.dumps(results, indent=4))
 elif args.http:
     uvicorn.run(
-        "app.main:create_debug_app" if args.stdout else "app.main:create_app",
+        "app:create_debug_app" if args.stdout else "app:create_app",
         host=args.host or "localhost",
         port=args.port or 8000,
         reload=args.reload,

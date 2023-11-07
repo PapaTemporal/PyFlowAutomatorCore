@@ -1,6 +1,7 @@
 # This file is licensed under the CC BY-NC-SA 4.0 license.
 # See https://creativecommons.org/licenses/by-nc-sa/4.0/ for details.
 
+import os
 import json
 import asyncio
 
@@ -11,6 +12,9 @@ from app.utils import Process
 from app.models import Flow
 
 
+MEMORY_CACHE = {}
+
+
 def run_from_file(path: str, debug: bool = False):
     with open(path, "r") as f:
         process = Process(Flow(**json.loads(f.read())), debug=debug)
@@ -19,15 +23,16 @@ def run_from_file(path: str, debug: bool = False):
 
 def create_app(debug: bool = False):
     app = FastAPI()
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[
-            "http://localhost:5173",
-        ],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    if os.getenv("PFA_ENV") and os.getenv("PFA_ENV").lower() == "local":
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=[
+                "http://localhost:5173",
+            ],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     def print_debug(message: str):
         if debug:
@@ -39,6 +44,26 @@ def create_app(debug: bool = False):
         print_debug("Starting process")
         asyncio.create_task(process.run())
         return "Started process."
+
+    @app.post("/api/save")
+    async def save(body: Flow, to_file: bool):
+        if to_file:
+            with open(f"{body.id}.json", "w") as f:
+                f.write(body.model_dump())
+        else:
+            MEMORY_CACHE[body.id] = body.model_dump_json()
+        return "Saved"
+
+    @app.post("/api/load")
+    async def load(id: str, from_file: bool):
+        if from_file:
+            try:
+                with open(f"{id}.json", "r") as f:
+                    return json.loads(f.read())
+            except:
+                return f"{id}.json does not exist."
+        else:
+            return MEMORY_CACHE.get(id, f"{id} does not exist in memory.")
 
     @app.websocket("/ws/run")
     async def websocket_endpoint(websocket: WebSocket):

@@ -69,7 +69,7 @@
                 "kwargs": {
                     "expression": "$.results"
                 },
-                "function": "extract_json"
+                "function": "app.custom.extract_json"
             },
             "position": {
                 "x": 884.5,
