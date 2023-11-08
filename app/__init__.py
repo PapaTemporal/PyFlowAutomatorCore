@@ -3,6 +3,5 @@
 
 from app.main import (
     create_app,
-    create_debug_app,
     run_from_file,
 )

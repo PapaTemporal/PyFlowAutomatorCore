@@ -5,13 +5,15 @@ import os
 import json
 import argparse
 import uvicorn
+from argparse import RawDescriptionHelpFormatter
 from dotenv import load_dotenv
 
 load_dotenv()
 from app import run_from_file
 
-parser = argparse.ArgumentParser(description="Run the application.")
-parser.add_argument("--http", action="store_true", help="Run the HTTP server.")
+parser = argparse.ArgumentParser(
+    description="Run the application.", formatter_class=RawDescriptionHelpFormatter
+)
 parser.add_argument(
     "--script",
     type=str,
@@ -19,34 +21,39 @@ parser.add_argument(
     help="Run a Python script instead of the server. Provide the file path.",
 )
 parser.add_argument(
-    "--host",
-    type=str,
-    help="The host to bind to for http and ws servers. Default is localhost.",
-)
-parser.add_argument(
-    "--port",
-    type=int,
-    help="The port to bind to for http and ws servers. Default is 8000.",
-)
-parser.add_argument(
-    "--reload",
-    action="store_true",
-    help="Reloads on code change. Only available with --http. (BROKEN)",
-)
-parser.add_argument(
-    "--stdout",
-    action="store_true",
-    help="Prints the function call and results to stdout.",
-)
-parser.add_argument(
     "--out",
     type=str,
     default=None,
     help="Filepath to save results to. Only available with --script.",
 )
+parser.add_argument(
+    "--stdout",
+    action="store_true",
+    help="Prints the function call and results to stdout. Only available with --script.",
+)
+parser.add_argument("--http", action="store_true", help="Run FastAPI HTTP/WS server.")
+parser.add_argument(
+    "--host",
+    type=str,
+    help="The host to bind to for http/ws services (overrides PFA_HOST env variable). Default is localhost.",
+)
+parser.add_argument(
+    "--port",
+    type=int,
+    help="The port to bind to for http/ws services (overrides PFA_PORT env variable). Default is 8000.",
+)
+
 examples = """Examples:
     python run.py --http --host 0.0.0.0 --port 8080
-    python run.py --script my_script.py --out my_saved_results.json --debug
+    python run.py --script my_script.py --out my_saved_results.json --stdout
+Environment Variables:
+    PFA_LOCAL: set to True when running locally so CORS can be enabled 
+    PFA_TRACE: set to True to enable stdout of all step results for troubleshooting
+    PFA_DB_CLASS: for any ORM/DB extensibility, a class with CRUD operations for flows 
+                that takes no arguments (see app.utils.database for examples) 
+                defaults to SimpleInMemoryDB
+    PFA_HOST: host to use when starting http/ws server
+    PFA_PORT: port to use when starting http/ws server
 """
 parser.epilog = examples
 args = parser.parse_args()
@@ -58,10 +65,9 @@ if args.script:
             f.write(json.dumps(results, indent=4))
 elif args.http:
     uvicorn.run(
-        "app:create_debug_app" if args.stdout else "app:create_app",
-        host=args.host or "localhost",
-        port=args.port or 8000,
-        reload=args.reload,
+        "app:create_app",
+        host=args.host or os.getenv("PFA_HOST", "localhost"),
+        port=args.port or int(os.getenv("PFA_PORT", "8000")),
     )
 else:
     print("Please specify either --http or --script.")

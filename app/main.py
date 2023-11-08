@@ -12,18 +12,27 @@ from app.utils import Process
 from app.models import Flow
 
 
-MEMORY_CACHE = {}
-
-
 def run_from_file(path: str, debug: bool = False):
     with open(path, "r") as f:
         process = Process(Flow(**json.loads(f.read())), debug=debug)
     return asyncio.run(process.run())
 
 
-def create_app(debug: bool = False):
+def create_app():
+    local = os.getenv("PFA_LOCAL", "False").lower() == "true"
+    trace = os.getenv("PFA_TRACE", "False").lower() == "true"
+    db_class = os.getenv("PFA_DB_CLASS", "app.utils.SimpleInMemoryDB")
+    module_name, class_name = db_class.rsplit(".", 1)
+    module = __import__(module_name, fromlist=[class_name])
+    db = getattr(module, class_name)()
+
+    async def print_trace(message: str):
+        if trace:
+            print(message)
+
     app = FastAPI()
-    if os.getenv("PFA_ENV") and os.getenv("PFA_ENV").lower() == "local":
+
+    if local:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=[
@@ -34,36 +43,40 @@ def create_app(debug: bool = False):
             allow_headers=["*"],
         )
 
-    def print_debug(message: str):
-        if debug:
-            print(message)
+    @app.get("/api/flow")
+    async def get(flow_id: str):
+        if not db:
+            raise ReferenceError("No database setup.")
+        return db.read(flow_id)
+
+    @app.post("/api/flow")
+    async def save(body: Flow):
+        if not db:
+            raise ReferenceError("No database setup.")
+        return db.create(body)
+
+    @app.put("/api/flow")
+    async def update(body: Flow):
+        if not db:
+            raise ReferenceError("No database setup.")
+        return db.update(body)
+
+    @app.delete("/api/flow")
+    async def delete(flow_id: str):
+        if not db:
+            raise ReferenceError("No database setup.")
+        return db.delete(flow_id)
 
     @app.post("/api/run")
-    async def run(body: Flow):
-        process = Process(body, debug=debug)
-        print_debug("Starting process")
+    async def run(body: Flow = None, flow_id: str = None):
+        if db and flow_id:
+            body = db.read(flow_id)
+        if not body:
+            raise AttributeError("Missing flow data.")
+        process = Process(body, debug=trace)
+        await print_trace("Starting process")
         asyncio.create_task(process.run())
         return "Started process."
-
-    @app.post("/api/save")
-    async def save(body: Flow, to_file: bool):
-        if to_file:
-            with open(f"{body.id}.json", "w") as f:
-                f.write(body.model_dump())
-        else:
-            MEMORY_CACHE[body.id] = body.model_dump_json()
-        return "Saved"
-
-    @app.post("/api/load")
-    async def load(id: str, from_file: bool):
-        if from_file:
-            try:
-                with open(f"{id}.json", "r") as f:
-                    return json.loads(f.read())
-            except:
-                return f"{id}.json does not exist."
-        else:
-            return MEMORY_CACHE.get(id, f"{id} does not exist in memory.")
 
     @app.websocket("/ws/run")
     async def websocket_endpoint(websocket: WebSocket):
@@ -80,7 +93,7 @@ def create_app(debug: bool = False):
 
         while True:
             if process_task and process_task.done():
-                print_debug("Process completed")
+                await print_trace("Process completed")
                 await send_update("Process completed.")
                 process_task = None
                 process = None
@@ -91,7 +104,7 @@ def create_app(debug: bool = False):
             )
 
             if process_task in done:
-                print_debug("Process completed")
+                await print_trace("Process completed")
                 await send_update("Process completed.")
                 process_task = None
                 process = None
@@ -103,24 +116,24 @@ def create_app(debug: bool = False):
                 if "stop" in data:
                     if process_task:
                         process_task.cancel()
-                        print_debug("Stopping process per user request")
+                        await print_trace("Stopping process per user request")
                         await send_update("Stopping process per user request.")
                     else:
-                        print_debug("No process running.")
+                        await print_trace("No process running.")
                         await send_update("No process running.")
                 else:
                     if process_task is None:
                         try:
                             flow = Flow(**data)
-                            process = Process(flow, update=send_update, debug=debug)
+                            process = Process(flow, update=send_update, debug=trace)
                             process_task = asyncio.create_task(process.run())
-                            print_debug("Starting process")
+                            await print_trace("Starting process")
                             await send_update("Starting process.")
                         except Exception as e:
-                            print_debug(f"Invalid flow data: {str(e)}")
+                            await print_trace(f"Invalid flow data: {str(e)}")
                             await send_update(f"Invalid flow data: {str(e)}")
                     else:
-                        print_debug(
+                        await print_trace(
                             "Process already running. Ignoring new process request."
                         )
                         await send_update(
@@ -130,7 +143,3 @@ def create_app(debug: bool = False):
                 receive_task = asyncio.create_task(websocket.receive_json())
 
     return app
-
-
-def create_debug_app():
-    return create_app(debug=True)
