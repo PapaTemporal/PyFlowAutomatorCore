@@ -2,7 +2,7 @@
 # See https://creativecommons.org/licenses/by-nc-sa/4.0/ for details.
 
 from typing import Any
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 
 
 class Edge(BaseModel, extra="allow"):
@@ -18,6 +18,30 @@ class NodeData(BaseModel, extra="allow"):
     args: list[Any] | None = None
     kwargs: dict[str, Any] | None = None
     next_function: int | str | None = None
+
+    @validator("args", pre=True)
+    def convert_args(cls, v):
+        new_args = []
+        if isinstance(v, list):
+            for item in v:
+                if isinstance(item, dict):
+                    new_args.append(list(item.values())[0])
+                else:
+                    new_args.append(item)
+        if not new_args:
+            new_args = v
+        return new_args
+
+    @validator("kwargs", pre=True)
+    def convert_kwargs(cls, v):
+        new_kwargs = {}
+        if isinstance(v, list):
+            for item in v:
+                if isinstance(item, dict):
+                    new_kwargs.update(item)
+        if not new_kwargs:
+            new_kwargs = v
+        return new_kwargs
 
 
 class Node(BaseModel, extra="allow"):
