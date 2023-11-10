@@ -339,3 +339,4 @@ pyrightconfig.json
 .DS_Store
 test.json
 scratch.py
+results.json

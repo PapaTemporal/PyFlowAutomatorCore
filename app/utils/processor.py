@@ -18,6 +18,7 @@ from app.utils.exceptions import (
     BranchError,
     ForEachError,
     SequenceError,
+    JSONExtractionError,
 )
 
 from app.models import Flow, Node
@@ -53,6 +54,8 @@ class Process:
             await self._run_function(self._flow.start_id)
             return self._variables
         except Exception as e:
+            if self._update:
+                await self._update(f"ERROR: {repr(e)}")
             raise ProcessRunError(
                 json.loads(
                     json.dumps(
@@ -113,6 +116,19 @@ class Process:
             if next_action := node.next:
                 await self._run_function(next_action)
 
+        except (
+            FunctionCallError,
+            ArgumentError,
+            KeywordArgumentError,
+            SetExceptionsError,
+            InvalidFunction,
+            ModuleNotFoundError,
+            BranchError,
+            ForEachError,
+            SequenceError,
+            JSONExtractionError,
+        ):
+            raise
         except Exception as e:
             raise FunctionRunError(e)
 
@@ -192,6 +208,14 @@ class Process:
                 start = time.time()
                 r = func(*args, **kwargs)
                 return r, time.time() - start
+        except (
+            ModuleNotFoundError,
+            BranchError,
+            ForEachError,
+            SequenceError,
+            JSONExtractionError,
+        ):
+            raise
         except Exception as e:
             raise FunctionCallError(e)
 
@@ -227,22 +251,33 @@ class Process:
             if not isinstance(array, list):
                 raise ValueError("array must be a list")
 
+            global_variable_keys = [k for k in self._variables.keys() if "__" not in k]
+            original_globals = {k: self._variables[k] for k in global_variable_keys}
+            iteration_results = {}
+
             for index, item in enumerate(array):
-                global_variable_keys = [
-                    k for k in self._variables.keys() if "__" not in k
-                ]
-                flow = self._flow.model_copy()
-                flow.variables = {
-                    k: v for k, v in self._variables.items() if "__" not in k
-                }
-                flow.variables[action_id] = item
-                flow.start_id = next_function
-                process = Process(flow, debug=self._debug, update=self._update)
-                await process._run_function(next_function)
-                local_variables = process._variables
-                for k in global_variable_keys:
-                    self._variables[k] = local_variables.pop(k)
-                self._variables[f"{action_id}__{index}"] = local_variables
+                self._variables = original_globals.copy()
+                self._variables[action_id] = item
+                await self._run_function(next_function)
+                local_variables = self._variables.copy()
+                iteration_results.update(
+                    {
+                        f"{action_id}__{index}": {
+                            k: v
+                            for k, v in local_variables.items()
+                            if k not in global_variable_keys
+                        }
+                    }
+                )
+                original_globals.update(
+                    {
+                        k: v
+                        for k, v in local_variables.items()
+                        if k in global_variable_keys
+                    }
+                )
+
+            self._variables.update(iteration_results)
             return "Completed"
         except Exception as e:
             raise ForEachError(e)
@@ -253,14 +288,7 @@ class Process:
                 raise ValueError("array must be a list")
 
             for item in array:
-                flow = self._flow.model_copy()
-                flow.variables = {
-                    k: v for k, v in self._variables.items() if "__" not in k
-                }
-                flow.start_id = item
-                process = Process(flow, debug=self._debug, update=self._update)
-                await process._run_function(item)
-                self._variables.update(process._variables)
+                await self._run_function(item)
             return "Completed"
         except Exception as e:
             raise SequenceError(e)
