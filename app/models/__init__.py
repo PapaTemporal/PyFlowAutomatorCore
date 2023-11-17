@@ -38,6 +38,7 @@ class NodeData(BaseModel, extra="allow"):
         if isinstance(v, list):
             for item in v:
                 if isinstance(item, dict):
+                    item.pop("advanded", None)
                     new_kwargs.update(item)
         if not new_kwargs:
             new_kwargs = v
