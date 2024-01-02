@@ -215,16 +215,19 @@ def get_all_func_defs_and_kwargs(func_name):
 
 
 def get_params_to_remove(func_dict):
-    signatures = [v["signature"].strip("()").split(", ") for v in func_dict.values()]
-    signatures = [
-        [re.split("=", param)[0] for param in sig if param != "**kwargs"]
-        for sig in signatures
-    ]
     params_to_remove = []
-    for signature in signatures[:-1]:
-        for param in signature:
-            if param not in params_to_remove:
-                params_to_remove.append(param)
+    if len(func_dict) > 1:
+        signatures = [
+            v["signature"].strip("()").split(", ") for v in func_dict.values()
+        ]
+        signatures = [
+            [re.split("=", param)[0] for param in sig if param != "**kwargs"]
+            for sig in signatures
+        ]
+        for signature in signatures[:-1]:
+            for param in signature:
+                if param not in params_to_remove:
+                    params_to_remove.append(param)
     return params_to_remove
 
 
@@ -243,11 +246,12 @@ def inject_docs(func_dict, kwargs):
 
     first_doc = func_dict[0]["doc"]
     kwargs_pos = first_doc.find(":param \*\*kwargs:")
-    kwargs_pos = first_doc[kwargs_pos:].find("\n") + kwargs_pos
-    first_half = first_doc[:kwargs_pos]
-    last_half = first_doc[kwargs_pos:]
+    if kwargs_pos != -1:
+        kwargs_pos = first_doc[kwargs_pos:].find("\n") + kwargs_pos
+        first_half = first_doc[:kwargs_pos]
+        last_half = first_doc[kwargs_pos:]
 
-    first_doc = f"{first_half}\n    {kwargs_joined}{last_half}"
+        first_doc = f"{first_half}\n    {kwargs_joined}{last_half}"
 
     return first_doc
 
@@ -257,7 +261,9 @@ def get_func_def(func_name):
     params_to_remove = get_params_to_remove(definitions)
     for param in params_to_remove:
         kwargs.pop(param, None)
-    formatted = inject_docs(definitions, kwargs)
+    formatted = definitions[0]["doc"]
+    if params_to_remove:
+        formatted = inject_docs(definitions, kwargs)
     return {
         "func": definitions[0]["func"],
         "signature": definitions[0]["signature"],
