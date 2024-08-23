@@ -5,6 +5,7 @@ import time
 import json
 import inspect
 import asyncio
+import threading
 from typing import Any, Callable
 from requests import Response
 from app.utils.exceptions import (
@@ -22,11 +23,14 @@ from app.utils.exceptions import (
 )
 
 from app.models import Flow, Node
+from app.utils.logs import ProcessLogQueueHandler
+
 
 custom_functions = [
     "branch",
     "for_each",
     "sequence",
+    "parallel",
     "set_variable",
 ]
 
@@ -35,48 +39,56 @@ class Process:
     def __init__(
         self,
         flow: Flow,
-        debug: bool = False,
         update: Callable[[dict[str, Any]], None] = None,
         allow_list: list = None,
+        ws: bool = False,
     ):
         self._flow = flow
         self._update = update
-        self._debug = debug
         self._variables = self._flow.variables.copy()
         self._allow_list = allow_list.extend(custom_functions) if allow_list else None
+        self.ws = ws
 
-    def print(self, message: str):
-        if self._debug:
-            print(message)
+        # Create a unique logger for this process
+        self.logger_name = f"ProcessLogger.{flow.name}.{flow.id}"
+        self.logger = ProcessLogQueueHandler.create_logger(self.logger_name, flow.parameters)
+
+        self.logger.log(self.logger_name, "info", f"Process initialized: {self._flow.name}")
 
     async def run(self):
         try:
+            self.logger.log(self.logger_name, "info", "Running process")
             await self._run_function(self._flow.start_id)
+            self.logger.log(self.logger_name, "info", "Running process completed")
             return self._variables
         except Exception as e:
             if self._update:
+                self.logger.log(self.logger_name, "error", f"ERROR: {repr(e)}")
                 await self._update(f"ERROR: {repr(e)}")
-            raise ProcessRunError(
-                json.loads(
-                    json.dumps(
-                        {
-                            "error": repr(e),
-                            "dump": {
-                                "flow": self._flow.model_dump(),
-                                "variables": self._variables,
-                            },
+            error = json.loads(
+                json.dumps(
+                    {
+                        "error": repr(e),
+                        "dump": {
+                            "flow": self._flow.model_dump(),
+                            "variables": self._variables,
                         },
-                        default=lambda o: repr(o),
-                        indent=4,
-                    )
+                    },
+                    default=lambda o: repr(o),
+                    indent=4,
                 )
             )
+            self.logger.log(self.logger_name, "error", error)
+            raise ProcessRunError(error)
 
     async def _run_function(self, function_id: str):
         try:
-            # need to sleep so there is time to send the update to the client before the next function is called
-            await asyncio.sleep(0.1)
+            self.logger.log(self.logger_name, "info", f"Loading function: {function_id}")
+            if self.ws:
+                # need to sleep so there is time to send the update to the client before the next function is called
+                await asyncio.sleep(0.1)
             node = self._flow.get_node(function_id)
+            self.logger.log(self.logger_name, "info", f"Running function: {function_id}:{node.model_dump_json()}")
             if self._allow_list:
                 if node.func not in self._allow_list:
                     raise InvalidFunction(
@@ -94,7 +106,7 @@ class Process:
                 response.raise_for_status()
                 response = response.json() or response.text
 
-            self.print(f"Response: {response}")
+            self.logger.log(self.logger_name, "debug", f"Response: {response}")
 
             self._variables[function_id] = response
 
@@ -113,9 +125,11 @@ class Process:
                 }
                 await self._update(message)
 
+            self.logger.log(self.logger_name, "info", f"Running function completed: {function_id}")
+
             if next_action := node.next:
                 await self._run_function(next_action)
-
+            
         except (
             FunctionCallError,
             ArgumentError,
@@ -134,6 +148,7 @@ class Process:
 
     async def _get_args(self, function_id: str, node: Node):
         try:
+            self.logger.log(self.logger_name, "debug", f"Getting args for {function_id}")
             args = node.args or []
             for edge in self._flow.get_arg_edges_by_target(function_id):
                 if (
@@ -148,12 +163,14 @@ class Process:
                     await self._run_function(edge.source)
 
                 args[edge.targetHandle] = self._variables[edge.source]
+            self.logger.log(self.logger_name, "debug", f"Got args for {function_id}: {args}")
             return args
         except Exception as e:
             raise ArgumentError(e)
 
     async def _get_kwargs(self, function_id: str, node: Node):
         try:
+            self.logger.log(self.logger_name, "debug", f"Getting kwargs for {function_id}")
             kwargs = node.kwargs or {}
             for edge in self._flow.get_kwarg_edges_by_target(function_id):
                 if (
@@ -168,16 +185,19 @@ class Process:
                     await self._run_function(edge.source)
 
                 kwargs[edge.targetHandle] = self._variables[edge.source]
+            self.logger.log(self.logger_name, "debug", f"Got kwargs for {function_id}: {kwargs}")
             return kwargs
         except Exception as e:
             raise KeywordArgumentError(e)
 
     def _set_exceptions(self, function_id: str, node: Node):
         try:
+            self.logger.log(self.logger_name, "debug", f"Setting exceptions for {function_id}")
             for edge in self._flow.get_except_edges_by_source(function_id):
                 if not node.kwargs:
                     node.data.kwargs = {}
                 node.kwargs[edge.sourceHandle] = edge.target
+            self.logger.log(self.logger_name, "debug", f"Set exceptions for {function_id}")
         except Exception as e:
             raise SetExceptionsError(e)
 
@@ -185,6 +205,7 @@ class Process:
         self, function_id: str, function: str, args: list[Any], kwargs: dict[str, Any]
     ):
         try:
+            self.logger.log(self.logger_name, "debug", f"Calling function: {function_id}:{function}")
             if function in custom_functions:
                 func_name = function
                 func = getattr(self, function)
@@ -196,17 +217,19 @@ class Process:
                 module = __import__(module_name, fromlist=[func_name])
                 func = getattr(module, func_name)
 
-            self.print(
+            self.logger.log(self.logger_name, "debug", 
                 f"Calling {function_id}:{func_name} with args: {args} and kwargs: {str(kwargs)[0:100]}"
             )
 
             if inspect.iscoroutinefunction(func):
                 start = time.time()
                 r = await func(*args, **kwargs)
+                self.logger.log(self.logger_name, "debug", f"Function {function_id}:{func_name} completed")
                 return r, time.time() - start
             else:
                 start = time.time()
                 r = func(*args, **kwargs)
+                self.logger.log(self.logger_name, "debug", f"Function {function_id}:{func_name} completed")
                 return r, time.time() - start
         except (
             ModuleNotFoundError,
@@ -289,6 +312,25 @@ class Process:
 
             for item in array:
                 await self._run_function(item)
+            return "Completed"
+        except Exception as e:
+            raise SequenceError(e)
+        
+    async def parallel(self, _: str, array: list[str]):
+        try:
+            if not isinstance(array, list):
+                raise ValueError("array must be a list")
+            
+            threads = []
+            for item in array:
+                thread = threading.Thread(target=self._run_function, args=(item,))
+                threads.append(thread)
+                thread.start()
+
+            # Wait for all threads to complete
+            for thread in threads:
+                thread.join()
+
             return "Completed"
         except Exception as e:
             raise SequenceError(e)

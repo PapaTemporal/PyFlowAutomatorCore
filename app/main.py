@@ -8,27 +8,23 @@ import asyncio
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.utils.logs import global_logger, log_queue
 from app.utils import Process
 from app.models import Flow
 
 
-def run_from_file(path: str, debug: bool = False):
+def run_from_file(path: str):
     with open(path, "r") as f:
-        process = Process(Flow(**json.loads(f.read())), debug=debug)
+        process = Process(Flow(**json.loads(f.read())))
     return asyncio.run(process.run())
 
 
 def create_app():
-    local = os.getenv("PFA_LOCAL", "False").lower() == "true"
-    trace = os.getenv("PFA_TRACE", "False").lower() == "true"
+    local = os.getenv("PFA_LOCAL", "True").lower() == "true"
     db_class = os.getenv("PFA_DB_CLASS", "app.utils.SimpleInMemoryDB")
     module_name, class_name = db_class.rsplit(".", 1)
     module = __import__(module_name, fromlist=[class_name])
     db = getattr(module, class_name)()
-
-    async def print_trace(message: str):
-        if trace:
-            print(message)
 
     app = FastAPI()
 
@@ -43,43 +39,66 @@ def create_app():
             allow_headers=["*"],
         )
 
+    @app.get("/api/settings")
+    async def get_settings(setting: str):
+        if not db:
+            raise ReferenceError("No database setup.")
+        return db.read_settings(setting)
+
+    @app.post("/api/settings")
+    async def save_settings(setting: str):
+        if not db:
+            raise ReferenceError("No database setup.")
+        return db.create_settings(setting)
+
+    @app.put("/api/settings")
+    async def update_settings(setting: str):
+        if not db:
+            raise ReferenceError("No database setup.")
+        return db.update_settings(setting)
+
+    @app.delete("/api/settings")
+    async def delete_settings(setting: str):
+        if not db:
+            raise ReferenceError("No database setup.")
+        return db.delete_settings(setting)
+
     @app.get("/api/flow")
     async def get(flow_id: str):
         if not db:
             raise ReferenceError("No database setup.")
-        return db.read(flow_id)
+        return db.read_flow(flow_id)
 
     @app.post("/api/flow")
     async def save(body: Flow):
         if not db:
             raise ReferenceError("No database setup.")
-        return db.create(body)
+        return db.create_flow(body)
 
     @app.put("/api/flow")
     async def update(body: Flow):
         if not db:
             raise ReferenceError("No database setup.")
-        return db.update(body)
+        return db.update_flow(body)
 
     @app.delete("/api/flow")
     async def delete(flow_id: str):
         if not db:
             raise ReferenceError("No database setup.")
-        return db.delete(flow_id)
+        return db.delete_flow(flow_id)
 
     @app.post("/api/run")
-    async def run(body: Flow = None, flow_id: str = None):
+    async def api_run(body: Flow = None, flow_id: str = None):
         if db and flow_id:
             body = db.read(flow_id)
         if not body:
             raise AttributeError("Missing flow data.")
-        process = Process(body, debug=trace)
-        await print_trace("Starting process")
+        process = Process(body)
         asyncio.create_task(process.run())
         return "Started process."
 
     @app.websocket("/ws/run")
-    async def websocket_endpoint(websocket: WebSocket):
+    async def websocket_run(websocket: WebSocket):
         await websocket.accept()
         process = None
         process_task = None
@@ -93,7 +112,7 @@ def create_app():
 
         while True:
             if process_task and process_task.done():
-                await print_trace("Process completed")
+                await log_queue.put((global_logger, "debug", "Process completed"))
                 await send_update("Process completed.")
                 process_task = None
                 process = None
@@ -104,7 +123,7 @@ def create_app():
             )
 
             if process_task in done:
-                await print_trace("Process completed")
+                await log_queue.put((global_logger, "debug", "Process completed"))
                 await send_update("Process completed.")
                 process_task = None
                 process = None
@@ -116,26 +135,26 @@ def create_app():
                 if "stop" in data:
                     if process_task:
                         process_task.cancel()
-                        await print_trace("Stopping process per user request")
+                        await log_queue.put((global_logger, "debug", "Stopping process per user request"))
                         await send_update("Stopping process per user request.")
                     else:
-                        await print_trace("No process running.")
+                        await log_queue.put((global_logger, "debug", "No process running."))
                         await send_update("No process running.")
                 else:
                     if process_task is None:
                         try:
                             flow = Flow(**data)
-                            process = Process(flow, update=send_update, debug=trace)
+                            process = Process(flow, update=send_update, ws=True)
                             process_task = asyncio.create_task(process.run())
-                            await print_trace("Starting process")
+                            await log_queue.put((global_logger, "debug", "Starting process"))
                             await send_update("Starting process.")
                         except Exception as e:
-                            await print_trace(f"Invalid flow data: {str(e)}")
+                            await log_queue.put((global_logger, "debug", f"Invalid flow data: {str(e)}"))
                             await send_update(f"Invalid flow data: {str(e)}")
                     else:
-                        await print_trace(
+                        await log_queue.put((global_logger, "debug", 
                             "Process already running. Ignoring new process request."
-                        )
+                        ))
                         await send_update(
                             "Process already running. Ignoring new process request."
                         )

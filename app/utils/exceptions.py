@@ -74,6 +74,10 @@ class SequenceError(Exception):
     """Raised when an exception is encountered while executing a sequence action"""
 
 
+class ParallelError(Exception):
+    """Raised when an exception is encountered while executing a parallel action"""
+
+
 class ArgumentError(Exception):
     """Raised when an exception is encountered while executing a sequence action"""
 

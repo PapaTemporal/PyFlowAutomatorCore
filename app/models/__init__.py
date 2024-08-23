@@ -2,7 +2,7 @@
 # See https://creativecommons.org/licenses/by-nc-sa/4.0/ for details.
 
 from typing import Any
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, field_validator
 
 
 class Edge(BaseModel, extra="allow"):
@@ -19,7 +19,7 @@ class NodeData(BaseModel, extra="allow"):
     kwargs: dict[str, Any] | None = None
     next_function: int | str | None = None
 
-    @validator("args", pre=True)
+    @field_validator("args", mode="before")
     def convert_args(cls, v):
         new_args = []
         if isinstance(v, list):
@@ -32,7 +32,7 @@ class NodeData(BaseModel, extra="allow"):
             new_args = v
         return new_args
 
-    @validator("kwargs", pre=True)
+    @field_validator("kwargs", mode="before")
     def convert_kwargs(cls, v):
         new_kwargs = {}
         if isinstance(v, list):
@@ -65,6 +65,23 @@ class Node(BaseModel, extra="allow"):
     @property
     def kwargs(self):
         return self.data.kwargs
+    
+
+class Settings(BaseModel):
+    env: str | None = "local"
+    debug: bool = False
+    db_class: str | None = "app.utils.SimpleInMemoryDB"
+
+
+class Signal(BaseModel):
+    url: str
+    level: str = "INFO"
+    format: str = "%(asctime)s | %(levelname)1.1s | %(name)s : %(message)s"
+
+
+class Parameters(BaseModel):
+    log: Signal | None = None
+    metric: Signal | None = None
 
 
 class Flow(BaseModel):
@@ -74,6 +91,7 @@ class Flow(BaseModel):
     edges: list[Edge]
     nodes: list[Node]
     start_id: str | None = None
+    parameters: Parameters | None = None
 
     def __init__(self, **data: Any):
         super().__init__(**data)

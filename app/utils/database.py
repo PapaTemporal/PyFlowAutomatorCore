@@ -22,7 +22,7 @@ class SimpleInMemoryDB:
     def __init__(self) -> None:
         self._flows = {}
 
-    def create(self, flow: dict):
+    def create_flow(self, flow: dict):
         try:
             flow_id = flow.get("id")
 
@@ -40,7 +40,7 @@ class SimpleInMemoryDB:
         except Exception as e:
             raise DBCreateError(e)
 
-    def read(self, flow_id: str):
+    def read_flow(self, flow_id: str):
         try:
             flow = flow.get(flow_id)
 
@@ -51,7 +51,7 @@ class SimpleInMemoryDB:
         except Exception as e:
             raise DBReadError(e)
 
-    def update(self, flow: dict):
+    def update_flow(self, flow: dict):
         try:
             flow_id = flow.get("id")
 
@@ -69,7 +69,7 @@ class SimpleInMemoryDB:
         except Exception as e:
             raise DBUpdateError(e)
 
-    def delete(self, flow_id: str):
+    def delete_flow(self, flow_id: str):
         try:
             if not self._flows.get(flow_id):
                 raise AttributeError(f"Flow {flow_id} does not exist.")

@@ -19,18 +19,26 @@
 # NOTE: if this file gets too large, you can put them into a separate file or
 # python package and import them.
 
+import re
 from jsonpath_ng.ext import parse
-from app.utils import JSONExtractionError
 
 
-def extract_json(json_obj: dict, expression: str):
+def json_parse(json_obj: dict, expression: str):
     try:
-        if not isinstance(json_obj, dict):
-            raise ValueError("json_object must be a dictionary")
-
-        values = [res.value for res in parse(expression).find(json_obj)]
-        if len(values) == 1:
-            return values[0]
-        return values
+        return parse(expression).find(json_obj)
     except Exception as e:
-        raise JSONExtractionError(f"Unable to extract JSON: {e}")
+        raise type(e)(f"'json_parse' exception: {e}") from e
+    
+
+def re_findall(text: str, pattern: str):
+    try:
+        return re.findall(pattern, text)
+    except Exception as e:
+        raise type(e)(f"'re_findall' exception: {e}") from e
+    
+
+def re_search(text: str, pattern: str):
+    try:
+        return re.search(pattern, text)
+    except Exception as e:
+        raise type(e)(f"'re_search' exception: {e}") from e

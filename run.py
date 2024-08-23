@@ -26,11 +26,6 @@ parser.add_argument(
     default=None,
     help="Filepath to save results to. Only available with --script.",
 )
-parser.add_argument(
-    "--stdout",
-    action="store_true",
-    help="Prints the function call and results to stdout. Only available with --script.",
-)
 parser.add_argument("--http", action="store_true", help="Run FastAPI HTTP/WS server.")
 parser.add_argument(
     "--host",
@@ -45,10 +40,9 @@ parser.add_argument(
 
 examples = """Examples:
     python run.py --http --host 0.0.0.0 --port 8080
-    python run.py --script my_script.py --out my_saved_results.json --stdout
+    python run.py --script my_script.py --out my_saved_results.json
 Environment Variables:
     PFA_LOCAL: set to True when running locally so CORS can be enabled 
-    PFA_TRACE: set to True to enable stdout of all step results for troubleshooting
     PFA_DB_CLASS: for any ORM/DB extensibility, a class with CRUD operations for flows 
                 that takes no arguments (see app.utils.database for examples) 
                 defaults to SimpleInMemoryDB
@@ -59,7 +53,7 @@ parser.epilog = examples
 args = parser.parse_args()
 
 if args.script:
-    results = run_from_file(args.script, debug=args.stdout)
+    results = run_from_file(args.script)
     if args.out:
         with open(args.out, "w") as f:
             f.write(json.dumps(results, indent=4))
